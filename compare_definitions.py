@@ -9,14 +9,11 @@ import tiktoken
 
 load_dotenv()
 
-# Input/Output file paths
-SIMILARITY_FILE = "similarity_results.csv"  # Your input CSV file
-ANALYSIS_OUTPUT_FILE = "matched_analysis_enhanced.csv"  # File for analysis output
+SIMILARITY_FILE = "similarity_results.csv"
+ANALYSIS_OUTPUT_FILE = "matched_analysis_enhanced.csv"
 
-# Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Ensure result output file exists
 if not os.path.exists(SIMILARITY_FILE):
     logger.error(f"Similarity results file {SIMILARITY_FILE} not found.")
     exit(1)
@@ -74,26 +71,6 @@ Using these principles, interpret the SQL columns provided in each task, assessi
     Output your analysis in a concise, structured manner, and ensure that any relevant insights are clear, reference the query code, directly related to the query code, and directly tied to solving the issue of fragmented data across teams.
     """
 
-    # system_prompt = """
-    # You are a specialized assistant tasked with analyzing SQL column definitions to help identify potential data fragmentation issues for a company. The company is trying to solve the problem of fragmented data across teams, where different SQL queries may attempt to calculate the same business metric but do so inconsistently.
-
-    # You will be given:
-
-    # A source column definition, which serves as the baseline for comparison.
-    # A list of matched columns that have been identified as similar using cosine similarity.
-    # Your objective:
-
-    # Compare each matched column to the source column and to each other - the columns are from different queries, and unrelated except that they were found similar by cosine similarity.
-    # Identify and describe any inconsistencies or variations that could be signs of data fragmentation, such as:
-    # Variations in naming conventions or aliases.
-    # Differences in business logic (e.g., using gross sales vs. net sales to calculate revenue).
-    # Differences in filtering logic, aggregation functions, or grouping.
-    # Any other variations that suggest two teams may be trying to achieve the same goal but using different methods.
-    # Do not provide hypothetical scenarios. Focus only on the provided columns and make your analysis as specific as possible. If any of the columns are almost identical, except for minor differences that seem to come from different teams attempting to solve the same problem, highlight those differences.
-
-    # Output your analysis in a concise, structured manner, and ensure that any relevant insights are clear, reference the query code, directly related to the query code, and directly tied to solving the issue of fragmented data across teams.
-    # """
-
     user_prompt = f"""
     I would like to give you a high level overview of what my company is trying to achieve by parsing client metadata with sqlglot to solve data fragmentation issues:
     1. Aliases and Naming Conventions
@@ -121,45 +98,18 @@ Using these principles, interpret the SQL columns provided in each task, assessi
     -- Please keep in mind that I don't need hypothetical examples of how fragmentation 'could' occur. I want any examples of it perhaps happening based on any found inconsistencies in the queries.
     """
 
-    # user_prompt = f"""
-    # I would like to give you a high level overview of what my company is trying to achieve by parsing client metadata with sqlglot to solve data fragmentation issues:
-    # 1. Aliases and Naming Conventions
-    # Aliases in SQL can help identify metrics with similar purposes across different queries (e.g., AS unique_views, AS revenue). However, relying solely on aliases can lead to both false positives (when different metrics are given similar names) and false negatives (when the same metric is labeled differently across teams). Therefore, while aliases are useful hints, they should not be the sole factor.
-    # 2. Intent Analysis (Query Logic)
-    # The query structure, including SELECT, GROUP BY, and WHERE clauses, provides important insight into what the query is trying to calculate. For example:
-    # A query with COUNT(DISTINCT user_id) is likely trying to calculate a unique count of users, while another query using SUM(amount) may be focused on revenue. Even if both are named similarly (e.g., "engagement" or "total activity"), the underlying intent differs.
-    # The query's intent, rather than just its alias, should be considered in identifying metrics.
-    # 3. Business Logic Mapping
-    # Associating metrics based on their purpose and logic is crucial. For instance, in business logic:
-    # "Revenue" might be derived differently across teams (e.g., one team uses gross sales, while another uses net sales).
-    # Twing could use predefined templates of business logic to recognize when two queries are intended to represent the same metric, despite different derivations. For example, "unique views" could have several variations but might still align with the same business metric goal.
-    # 4. Query Metadata and Patterns
-    # Beyond aliases, looking at metadata patterns can help. For example, if two queries:
-    # Pull data from the same key tables (e.g., a user table or an order table),
-    # Apply similar filtering (e.g., filtering by time window, product category), They likely aim to compute the same metric even if the exact SQL structure differs.
-
-    # next I want to provide you with a group of column definitions from various queries from one of our client companies. The first column definition is the source column all other columns in all the query data we have for them was tested against with embeddings and cosine similarity.
-    # The remainder of column definitions are the ones that were found to be greater than 80% similar. I would like you to evaluate to what degree the columns may or may not be notably similar or the same as the first column or each other, and if there are any where they are almost the same but only different in a way that could be born of two people from two teams trying to do the same thing but it's being done inconsistently (data fragmentation), please tell me. stand by for the first set of column definitions!
-
-    # Source Column: {source_column}
-
-    # Matched Columns: {', '.join(matched_columns)}
-
-    # -- Please keep in mind that I don't need hypothetical examples of how fragmentation 'could' occur. I want any examples of it perhaps happening based on any found inconsistencies in the queries.
-    # """
-
     system_tokens = count_tokens(system_prompt)
     user_tokens = count_tokens(user_prompt)
 
     total_tokens = system_tokens + user_tokens
 
-    if total_tokens > 128000:  # Adjust threshold based on the actual model's limit
+    if total_tokens > 128000:
         logger.warning("Token limit exceeded! Trimming content.")
         user_prompt = user_prompt[: int(128000 - system_tokens)]
 
     try:
         response = chat_completion(user_prompt, system_prompt)
-        # Extract and return the completion text
+
         return response
 
     except Exception as e:
@@ -173,10 +123,8 @@ def process_similarity_results():
     """
     logger.info(f"Processing similarity results from {SIMILARITY_FILE}")
 
-    # Dictionary to group by source_column
     grouped_data = defaultdict(list)
 
-    # Read similarity_results.csv and group by source_column
     with open(SIMILARITY_FILE, "r", newline="", encoding="utf-8") as csvfile:
         reader = csv.DictReader(csvfile)
         for row in reader:
@@ -184,33 +132,25 @@ def process_similarity_results():
             matched_column = row["matched_column"]
             query_signature_hash = row["source_qsh"]
 
-            # Append matched_column for the corresponding source_column
             grouped_data[source_column].append((query_signature_hash, matched_column))
 
-    # Now perform analysis for each unique source_column
     logger.info(f"Found {len(grouped_data)} unique source columns for analysis.")
     logger.info(f"{grouped_data}")
 
-    # Open output file for writing the results of the analysis
     with open(ANALYSIS_OUTPUT_FILE, "w", newline="", encoding="utf-8") as csvfile:
         fieldnames = ["query_signature_hash", "source_column", "matched_analysis"]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
 
-        # Loop through each source_column and its matched_columns
         for source_column, matched_list in grouped_data.items():
-            query_signature_hash = matched_list[0][0]  # Get the QSH from the first match
-            matched_columns = [
-                matched[1] for matched in matched_list
-            ]  # Extract all matched columns
+            query_signature_hash = matched_list[0][0]
+            matched_columns = [matched[1] for matched in matched_list]
 
             logger.info(f"Analyzing source column: {source_column}")
 
-            # Perform the OpenAI analysis
             analysis = analyze_with_openai(source_column, matched_columns)
             logger.info(f"Analysis: {analysis}")
 
-            # Write the result to the output CSV
             writer.writerow(
                 {
                     "query_signature_hash": query_signature_hash,
@@ -221,5 +161,4 @@ def process_similarity_results():
 
 
 if __name__ == "__main__":
-    # Process similarity results and perform OpenAI analysis
     process_similarity_results()
